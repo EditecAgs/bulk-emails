@@ -1,244 +1,226 @@
 <?php
-// app/Http/Controllers/SendController.php
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Jobs\SendGenericMail;
-use App\Services\MailTypeRegistry;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 
 class SendController extends Controller
 {
     public function index()
     {
-        return view('send.index', [
-            'mailTypes' => MailTypeRegistry::options(),
-        ]);
+        return view('send.index');
     }
 
-public function import(Request $request)
-{
-    $request->validate([
-        'archivo'   => 'required|file|mimes:csv,txt',
-        'mail_type' => 'required|string',
-    ]);
-
-    $type = MailTypeRegistry::get($request->mail_type);
-    
-    if (!$type) {
-        return back()->withErrors(['mail_type' => 'Tipo de envío no válido.']);
-    }
-
-    // Leer CSV
-    $file = $request->file('archivo');
-    $handle = fopen($file->getRealPath(), 'r');
-    
-    // 🔥 FUNCIÓN PARA LIMPIAR CARACTERES INVISIBLES
-    $cleanString = function($str) {
-        $str = preg_replace('/^\xEF\xBB\xBF/', '', $str);
-        $str = preg_replace('/[\x00-\x1F\x7F-\x9F]/u', '', $str);
-        $str = trim($str);
-        return $str;
-    };
-    
-    // Leer encabezados
-    $headers = fgetcsv($handle);
-    
-    if (!$headers) {
-        return back()->withErrors(['archivo' => 'El archivo CSV está vacío o es inválido.']);
-    }
-    
-    // Limpiar encabezados
-    $headers = array_map($cleanString, $headers);
-    $headersLower = array_map('strtolower', $headers);
-    
-    // 🔥 IMPORTANTE: Normalizar las columnas esperadas a minúsculas
-    $expectedColumns = array_map('strtolower', $type['columns']);
-    
-    // 🔥 Verificar columnas faltantes (solo para este tipo de envío)
-    $missingColumns = array_diff($expectedColumns, $headersLower);
-    
-    if (!empty($missingColumns)) {
-        fclose($handle);
-        return back()->withErrors([
-            'archivo' => 'El archivo no contiene las columnas requeridas: ' . implode(', ', $missingColumns) . 
-                        '. Columnas detectadas: ' . implode(', ', $headers)
-        ]);
-    }
-    
-    $alumnos = [];
-    $rowNumber = 1;
-    
-    while (($row = fgetcsv($handle)) !== false) {
-        $rowNumber++;
-        
-        // Limpiar valores
-        $row = array_map($cleanString, $row);
-        
-        // Crear array asociativo
-        $data = [];
-        foreach ($headers as $index => $header) {
-            $value = $row[$index] ?? '';
-            $data[$header] = $value;
-        }
-        
-        // También crear versión en minúsculas para validación
-        $dataLower = [];
-        foreach ($headersLower as $index => $headerLower) {
-            $dataLower[$headerLower] = $row[$index] ?? '';
-        }
-        
-        // Verificar columnas vacías
-        $hasEmptyRequired = false;
-        foreach ($expectedColumns as $col) {
-            if (empty($dataLower[$col])) {
-                $hasEmptyRequired = true;
-                $data['error_reason'] = "Columna '{$col}' está vacía en fila {$rowNumber}";
-                break;
-            }
-        }
-        
-        if ($hasEmptyRequired) {
-            $data['estado'] = 'error';
-            $alumnos[] = $data;
-            continue;
-        }
-        
-        // 🔥 VALIDACIÓN SEGÚN EL TIPO DE ENVÍO
-        if ($type['recipient'] === 'moodle') {
-            // Para activación M365 - buscar en Moodle
-            $username = $dataLower['username'] ?? '';
-            $userMoodle = $this->getUserMoodle($username);
-            
-            if ($userMoodle && isset($userMoodle['email'])) {
-                $data['moodle'] = $userMoodle['email'];
-                $data['estado'] = 'ok';
-            } else {
-                $data['estado'] = 'error';
-                $data['error_reason'] = 'Usuario no encontrado en Moodle: ' . $username;
-            }
-        } else {
-            // Para otros tipos (recordatorio_pago, bienvenida, etc.)
-            $recipientKey = strtolower($type['recipient']);
-            $recipientEmail = $dataLower[$recipientKey] ?? '';
-            
-            if (empty($recipientEmail)) {
-                $data['estado'] = 'error';
-                $data['error_reason'] = 'Email vacío';
-            } elseif (!filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
-                $data['estado'] = 'error';
-                $data['error_reason'] = 'Email inválido: ' . $recipientEmail;
-            } else {
-                $data['estado'] = 'ok';
-            }
-        }
-        
-        $alumnos[] = $data;
-    }
-    
-    fclose($handle);
-    
-    if (empty($alumnos)) {
-        return back()->withErrors(['archivo' => 'No se encontraron datos válidos en el archivo.']);
-    }
-    
-    return view('send.preview', [
-        'alumnos'    => $alumnos,
-        'mail_type'  => $request->mail_type,
-        'mailTypes'  => MailTypeRegistry::options(),
-    ]);
-}
-    public function send(Request $request)
+    public function getHeaders(Request $request)
     {
         $request->validate([
-            'alumnos'   => 'required|array',
-            'mail_type' => 'required|string',
+            'archivo' => 'required|file|mimes:csv,txt',
         ]);
 
-        $type = MailTypeRegistry::get($request->mail_type);
-        
-        if (!$type) {
-            return back()->withErrors(['mail_type' => 'Tipo de envío no válido.']);
+        $file = $request->file('archivo');
+        $handle = fopen($file->getRealPath(), 'r');
+
+        $cleanString = function($str) {
+            $str = preg_replace('/^\xEF\xBB\xBF/', '', $str);
+            $str = preg_replace('/[\x00-\x1F\x7F-\x9F]/u', '', $str);
+            return trim($str);
+        };
+
+        $headers = fgetcsv($handle);
+        fclose($handle);
+
+        if (!$headers) {
+            return response()->json(['error' => 'El archivo CSV está vacío o es inválido.'], 400);
         }
 
-        // Filtrar solo los que tienen estado 'ok'
-        $validos = collect($request->alumnos)
-            ->filter(fn($alumno) => ($alumno['estado'] ?? '') === 'ok')
+        $headers = array_map($cleanString, $headers);
+
+        // Limpiar comillas si las tienen
+        $headers = array_map(function($header) {
+            return trim($header, '"');
+        }, $headers);
+
+        return response()->json([
+            'headers' => $headers,
+            'count' => count($headers)
+        ]);
+    }
+
+    public function import(Request $request)
+    {
+        $request->validate([
+            'archivo' => 'required|file|mimes:csv,txt',
+            'subject' => 'required|string|max:255',
+            'html' => 'required|string',
+        ]);
+
+        // Leer CSV
+        $file = $request->file('archivo');
+        $handle = fopen($file->getRealPath(), 'r');
+
+        $cleanString = function($str) {
+            $str = preg_replace('/^\xEF\xBB\xBF/', '', $str);
+            $str = preg_replace('/[\x00-\x1F\x7F-\x9F]/u', '', $str);
+            return trim($str);
+        };
+
+        // Leer encabezados
+        $headers = fgetcsv($handle);
+        if (!$headers) {
+            fclose($handle);
+            return back()->withErrors(['archivo' => 'El archivo CSV está vacío o es inválido.']);
+        }
+
+        $headers = array_map($cleanString, $headers);
+        
+        // Detectar columna de email
+        $emailColumn = $this->detectEmailColumn($headers);
+        if (!$emailColumn) {
+            fclose($handle);
+            return back()->withErrors(['archivo' => 'No se encontró una columna de email']);
+        }
+
+        // Leer datos
+        $alumnos = [];
+        while (($row = fgetcsv($handle)) !== false) {
+            $row = array_map($cleanString, $row);
+            $data = [];
+            foreach ($headers as $index => $header) {
+                $data[$header] = $row[$index] ?? '';
+            }
+
+            // Validar email
+            $email = $data[$emailColumn] ?? '';
+            if (empty($email)) {
+                $data['estado'] = 'error';
+                $data['error_reason'] = 'Email vacío';
+            } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $data['estado'] = 'error';
+                $data['error_reason'] = 'Email inválido: ' . $email;
+            } else {
+                $data['estado'] = 'ok';
+            }
+
+            $alumnos[] = $data;
+        }
+        fclose($handle);
+
+        if (empty($alumnos)) {
+            return back()->withErrors(['archivo' => 'No se encontraron datos en el archivo.']);
+        }
+
+        // Guardar en sesión
+        session([
+            'alumnos' => $alumnos,
+            'subject_template' => $request->subject,
+            'html_template' => $request->html,
+            'email_column' => $emailColumn,
+        ]);
+
+        return view('send.preview', [
+            'alumnos' => $alumnos,
+            'email_column' => $emailColumn,
+            'subject_template' => $request->subject,
+            'html_template' => $request->html,
+        ]);
+    }
+
+    public function sendMails(Request $request)
+    {
+        $alumnos = session('alumnos', []);
+        $subjectTemplate = session('subject_template', '');
+        $htmlTemplate = session('html_template', '');
+        $emailColumn = session('email_column', '');
+
+        if (empty($alumnos)) {
+            return redirect()->route('send.index')->withErrors(['general' => 'No hay datos para enviar.']);
+        }
+
+        $validos = collect($alumnos)
+            ->filter(fn($a) => ($a['estado'] ?? '') === 'ok')
             ->values();
 
         if ($validos->isEmpty()) {
-            return back()->withErrors(['general' => 'No hay destinatarios válidos para enviar correos.']);
+            return back()->withErrors(['general' => 'No hay destinatarios válidos.']);
         }
 
-        // Inicializar cache para el progreso
         Cache::put('mail_total', $validos->count());
         Cache::put('mail_sent', 0);
         Cache::put('mail_log', []);
 
-        // Disparar jobs
         $delay = 0;
-        
         foreach ($validos as $alumno) {
-            // Obtener el email del destinatario
-            $recipientEmail = $type['recipient'] === 'moodle' 
-                ? ($alumno['moodle'] ?? '') 
-                : ($alumno[$type['recipient']] ?? '');
-            
+            $recipientEmail = $alumno[$emailColumn] ?? '';
             if (empty($recipientEmail)) {
-                $this->appendLogImmediate($alumno[$type['label_col']] ?? 'unknown', 'error', 'Email de destino vacío');
+                $this->appendLogImmediate('unknown', 'error', 'Email destino vacío');
                 Cache::increment('mail_sent');
                 continue;
             }
-            
+
+            // Renderizar asunto con los datos del alumno
+            $subject = $this->renderTemplate($subjectTemplate, $alumno);
+            $label = $this->getLabel($alumno, $emailColumn);
+
             SendGenericMail::dispatch(
-                recipientEmail: $recipientEmail,
-                recipientLabel: $alumno[$type['label_col']] ?? $recipientEmail,
-                subject: $type['subject'],
-                view: $type['view'],
-                data: ($type['data_map'])($alumno),
+                $recipientEmail,
+                $label,
+                $subject,      
+                $htmlTemplate,   
+                $alumno          
             )->delay(now()->addSeconds($delay));
-            
-            $delay += 5; // 5 segundos entre correos para no saturar
+
+            $delay += 5;
         }
 
         return view('send.result');
     }
 
-    public function progress()
+    private function renderTemplate(string $template, array $data): string
     {
-        return response()->json([
-            'total' => Cache::get('mail_total', 0),
-            'sent'  => Cache::get('mail_sent', 0),
-            'log'   => Cache::get('mail_log', []),
-        ]);
+        foreach ($data as $key => $value) {
+            $template = preg_replace('/\{\{\s*' . preg_quote($key, '/') . '\s*\}\}/', $value, $template);
+        }
+        return $template;
     }
 
-    private function getUserMoodle(string $username): ?array
+    private function detectEmailColumn(array $headers): ?string
     {
-        try {
-            $response = Http::withoutVerifying()
-                ->timeout(10)
-                ->get(config('services.moodle.url') . '/webservice/rest/server.php', [
-                    'wstoken' => config('services.moodle.token'),
-                    'wsfunction' => 'core_user_get_users_by_field',
-                    'moodlewsrestformat' => 'json',
-                    'field' => 'username',
-                    'values[0]' => $username,
-                ]);
-
-            if (!$response->failed() && !empty($response->json())) {
-                return $response->json()[0];
+        $keywords = ['email', 'correo', 'mail'];
+        foreach ($headers as $col) {
+            $colLower = strtolower($col);
+            if (in_array($colLower, $keywords)) {
+                return $col;
             }
-        } catch (\Exception $e) {
-            Log::error("Error al consultar Moodle: {$e->getMessage()}");
         }
-
+        foreach ($headers as $col) {
+            $colLower = strtolower($col);
+            if (str_contains($colLower, 'email') || str_contains($colLower, 'correo') || str_contains($colLower, 'mail')) {
+                return $col;
+            }
+        }
         return null;
     }
-    
+
+    private function getLabel(array $data, string $emailColumn): string
+    {
+        $nameColumns = ['nombre', 'name', 'nombres', 'fullname', 'nombre_completo'];
+        foreach ($nameColumns as $col) {
+            if (isset($data[$col]) && !empty($data[$col])) {
+                return $data[$col];
+            }
+        }
+        foreach ($data as $key => $value) {
+            if (str_contains(strtolower($key), 'nombre') || str_contains(strtolower($key), 'name')) {
+                if (!empty($value)) {
+                    return $value;
+                }
+            }
+        }
+        return $data[$emailColumn] ?? 'unknown';
+    }
+
     private function appendLogImmediate(string $username, string $status, string $message): void
     {
         $log = Cache::get('mail_log', []);
@@ -248,5 +230,14 @@ public function import(Request $request)
             'message' => $message,
         ];
         Cache::put('mail_log', $log);
+    }
+
+    public function progress()
+    {
+        return response()->json([
+            'total' => Cache::get('mail_total', 0),
+            'sent'  => Cache::get('mail_sent', 0),
+            'log'   => Cache::get('mail_log', []),
+        ]);
     }
 }

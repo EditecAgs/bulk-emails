@@ -86,18 +86,47 @@
                         @csrf
                         
                         <!-- Tipo de envío -->
+                        <!-- Variables disponibles -->
+                        <div id="variables-container" class="mb-6 hidden">
+                            <div class="p-4 rounded-xl" style="background-color: var(--tec-gray-bg); border: 1px solid var(--tec-gray-border);">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <svg class="w-5 h-5" style="color: var(--tec-blue);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    <span class="text-sm font-semibold" style="color: var(--tec-text);">
+                                        📊 Variables disponibles:
+                                    </span>
+                                </div>
+                                <div id="variables-list" class="flex flex-wrap gap-2">
+                                    <span class="text-xs text-gray-400">(Sube un archivo CSV para ver las variables)</span>
+                                </div>
+                                <p class="text-xs mt-2" style="color: var(--tec-text-light);">
+                                    💡 Usa @{{ variable }} en el asunto y en el HTML para insertar datos del CSV
+                                </p>
+                            </div>
+                        </div>
+                        <!-- Paso 2: Asunto -->
                         <div class="mb-6">
                             <label class="block text-sm font-semibold mb-2" style="color: var(--tec-text);">
-                                Tipo de envío
+                                📝 Paso 2: Asunto del correo <span class="text-red-500">*</span>
                             </label>
-                            <select name="mail_type" required
-                                class="w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 cursor-pointer"
-                                style="background-color: var(--tec-gray-bg); border-color: var(--tec-gray-border); color: var(--tec-text);">
-                                <option value="" disabled selected>— Selecciona un tipo —</option>
-                                @foreach ($mailTypes as $key => $label)
-                                    <option value="{{ $key }}">{{ $label }}</option>
-                                @endforeach
-                            </select>
+                            <input type="text" name="subject" id="subjectInput" required
+                                class="w-full px-4 py-2.5 rounded-xl border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                placeholder="Ej: Hola @{{ nombre }}, bienvenido al curso" style="border-color: var(--tec-gray-border);">
+                        </div>
+
+                        <!-- Paso 3: HTML de la plantilla -->
+                        <div class="mb-6">
+                            <label class="block text-sm font-semibold mb-2" style="color: var(--tec-text);">
+                                📄 Paso 3: Plantilla HTML <span class="text-red-500">*</span>
+                            </label>
+                            <p class="text-xs mb-2" style="color: var(--tec-text-light);">
+                                💡 Usa @{{ variable }} para insertar datos del CSV. Ej: @{{ nombre }}, @{{ email }}
+                            </p>
+                            <textarea name="html" id="htmlEditor" rows="15" required
+                                class="w-full px-4 py-2.5 rounded-xl border font-mono text-sm"
+                                style="border-color: var(--tec-gray-border); font-family: 'Courier New', monospace;"
+                                placeholder="Pega aquí tu código HTML completo..."></textarea>
                         </div>
 
                         <!-- Archivo CSV -->
@@ -166,32 +195,212 @@
     </div>
 
     <script>
-        // Drag & Drop functionality (igual que antes)
+        // ============================================
+        // 1. DRAG & DROP
+        // ============================================
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
         const fileNameSpan = document.getElementById('fileName');
         const submitBtn = document.getElementById('submitBtn');
         const form = document.getElementById('uploadForm');
 
-        // ... (mantén aquí todo el código JavaScript de drag & drop y validaciones que ya funcionaba) ...
+        // ============================================
+        // 2. EDITORES ACTIVOS (para inserción automática)
+        // ============================================
+        let activeEditor = null;
+        const subjectInput = document.getElementById('subjectInput');
+        const htmlEditor = document.getElementById('htmlEditor');
+
+        // Detectar qué campo tiene el foco
+        subjectInput.addEventListener('focus', () => activeEditor = subjectInput);
+        htmlEditor.addEventListener('focus', () => activeEditor = htmlEditor);
+        
+        // También permitir click fuera de los campos
+        document.addEventListener('click', (e) => {
+            if (e.target !== subjectInput && e.target !== htmlEditor) {
+                // No desactivamos activeEditor para permitir múltiples inserciones
+            }
+        });
+
+        // ============================================
+        // 3. OBTENER HEADERS DEL CSV (vía AJAX)
+        // ============================================
+        function getCSVHeaders(file) {
+            const formData = new FormData();
+            formData.append('archivo', file);
+            formData.append('_token', document.querySelector('input[name="_token"]').value);
+
+            fetch('{{ route("send.headers") }}', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error('Error:', data.error);
+                    alert('Error al leer el CSV: ' + data.error);
+                    return;
+                }
+                
+                if (data.headers && data.headers.length > 0) {
+                    showVariables(data.headers);
+                } else {
+                    alert('No se detectaron columnas en el CSV');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al procesar el archivo CSV');
+            });
+        }
+
+    
+        function showVariables(columns) {
+            const container = document.getElementById('variables-container');
+            const list = document.getElementById('variables-list');
+            
+            // Limpiar columnas
+            columns = columns
+                .map(c => c.trim().replace(/^"|"$/g, ''))
+                .filter(c => c !== '');
+            
+            if (columns.length === 0) {
+                container.classList.remove('hidden');
+                list.innerHTML = '<span class="text-xs text-red-500">No se detectaron columnas en el CSV</span>';
+                return;
+            }
+            
+            container.classList.remove('hidden');
+            list.innerHTML = '';
+            
+            columns.forEach(col => {
+                // Crear la variable con template literal (ESCAPADA para Blade)
+                const variable = '@{{ ' + col + ' }}';
+                
+                const badge = document.createElement('button');
+                badge.type = "button";
+                badge.className = 'inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full text-xs font-mono hover:bg-blue-100 cursor-pointer transition-colors border border-blue-200';
+                
+                // Icono y nombre - Usando template literal correctamente escapado
+                badge.innerHTML = `
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    ${variable}
+                `;
+                
+                // Título - Usando concatenación para evitar problemas con Blade
+                badge.title = 'Haz clic para insertar {{' + col + '}}';
+                
+                badge.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    insertVariable(variable);
+                });
+                
+                list.appendChild(badge);
+            });
+            
+            // Mostrar indicador de inserción
+            const infoBadge = document.createElement('span');
+            infoBadge.className = 'text-xs text-gray-400 ml-2';
+            infoBadge.textContent = '📌 Haz clic en una variable para insertarla donde esté el cursor';
+            list.appendChild(infoBadge);
+        }
+
+        // ============================================
+        // 5. INSERTAR VARIABLE EN EL EDITOR ACTIVO
+        // ============================================
+        function insertVariable(variable) {
+            // Si hay un editor activo, insertar ahí
+            if (activeEditor) {
+                const start = activeEditor.selectionStart;
+                const end = activeEditor.selectionEnd;
+                
+                // Insertar en la posición del cursor
+                activeEditor.value = 
+                    activeEditor.value.substring(0, start) +
+                    variable +
+                    activeEditor.value.substring(end);
+                
+                // Mantener el foco
+                activeEditor.focus();
+                
+                // Colocar el cursor después de la variable insertada
+                const newPosition = start + variable.length;
+                activeEditor.selectionStart = activeEditor.selectionEnd = newPosition;
+                
+                // Feedback visual
+                showInsertFeedback(activeEditor);
+                
+                return;
+            }
+            
+            // Si no hay editor activo, copiar al portapapeles
+            navigator.clipboard.writeText(variable).then(() => {
+                showToast('✅ Copiado: ' + variable);
+            }).catch(() => {
+                // Fallback
+                const textarea = document.createElement('textarea');
+                textarea.value = variable;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showToast('✅ Copiado: ' + variable);
+            });
+        }
+
+        // ============================================
+        // 6. FEEDBACK VISUAL
+        // ============================================
+        function showInsertFeedback(element) {
+            const originalBg = element.style.background;
+            element.style.background = '#d1fae5';
+            element.style.transition = 'background 0.3s';
+            setTimeout(() => {
+                element.style.background = originalBg;
+            }, 500);
+        }
+
+        function showToast(message) {
+            // Crear toast temporal
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg text-sm shadow-lg z-50';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.5s';
+                setTimeout(() => document.body.removeChild(toast), 500);
+            }, 2000);
+        }
+
+        // ============================================
+        // 7. DRAG & DROP EVENTS
+        // ============================================
         dropZone.addEventListener('click', () => fileInput.click());
 
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             dropZone.classList.add('drag-over');
+            dropZone.style.borderColor = '#0b5ed7';
         });
 
         dropZone.addEventListener('dragleave', (e) => {
             e.preventDefault();
             dropZone.classList.remove('drag-over');
+            dropZone.style.borderColor = '';
         });
 
         dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
             dropZone.classList.remove('drag-over');
+            dropZone.style.borderColor = '';
             const files = e.dataTransfer.files;
             if (files.length > 0 && files[0].name.endsWith('.csv')) {
                 fileInput.files = files;
+                getCSVHeaders(files[0]);
                 updateFileName(files[0].name);
             } else {
                 fileNameSpan.innerHTML = '<span class="text-red-500">Archivo no válido</span>';
@@ -201,6 +410,7 @@
 
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
+                getCSVHeaders(e.target.files[0]);
                 updateFileName(e.target.files[0].name);
             } else {
                 updateFileName(null);
@@ -217,18 +427,38 @@
             }
         }
 
+        // ============================================
+        // 8. VALIDACIÓN DEL FORMULARIO
+        // ============================================
         form.addEventListener('submit', (e) => {
-            const mailType = document.querySelector('select[name="mail_type"]').value;
-            if (!mailType) {
-                e.preventDefault();
-                alert('Por favor selecciona un tipo de envío');
-            } else if (!fileInput.files.length) {
+            if (!fileInput.files.length) {
                 e.preventDefault();
                 alert('Por favor selecciona un archivo CSV');
+                return;
+            }
+            
+            const subject = document.querySelector('input[name="subject"]');
+            if (!subject.value.trim()) {
+                e.preventDefault();
+                alert('Por favor escribe un asunto');
+                return;
+            }
+            
+            const html = document.querySelector('textarea[name="html"]');
+            if (!html.value.trim()) {
+                e.preventDefault();
+                alert('Por favor pega el código HTML de la plantilla');
+                return;
             }
         });
 
+        // ============================================
+        // 9. INICIALIZACIÓN
+        // ============================================
         updateFileName(null);
+        
+        console.log('📧 Sistema de envío masivo listo');
+        console.log('💡 Sube un CSV para ver las variables disponibles');
     </script>
 </body>
 </html>
