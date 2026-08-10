@@ -52,40 +52,86 @@
                 <!-- Card Body -->
                 <div class="px-6 sm:px-8 py-6">
                     
-                    <!-- Mensajes -->
+                    <!-- Mensajes de error/success -->
                     @if (session('success'))
                         <div class="mb-6 p-4 rounded-xl bg-green-50 border border-green-200">
-                            <div class="flex items-center gap-2">
-                                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                                <span class="text-green-700 text-sm">{{ session('success') }}</span>
-                            </div>
+                            <span class="text-green-700 text-sm">{{ session('success') }}</span>
                         </div>
                     @endif
 
                     @if ($errors->any())
                         <div class="mb-6 p-4 rounded-xl bg-red-50 border border-red-200">
-                            <div class="flex items-start gap-2">
-                                <svg class="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                                <div>
-                                    <p class="text-red-700 font-medium text-sm mb-1">Errores:</p>
-                                    <ul class="text-red-600 text-sm list-disc list-inside">
-                                        @foreach ($errors->all() as $error)
-                                            <li>{{ $error }}</li>
-                                        @endforeach
-                                    </ul>
-                                </div>
-                            </div>
+                            <ul class="text-red-600 text-sm list-disc list-inside">
+                                @foreach ($errors->all() as $error)
+                                    <li>{{ $error }}</li>
+                                @endforeach
+                            </ul>
                         </div>
                     @endif
 
                     <form action="{{ route('send.import') }}" method="POST" enctype="multipart/form-data" id="uploadForm">
                         @csrf
                         
-                        <!-- Tipo de envío -->
+                        <!-- Paso 1: Seleccionar o crear plantilla -->
+                        <div class="mb-6">
+                            <label class="block text-sm font-semibold mb-2" style="color: var(--tec-text);">
+                                📁 Paso 1: Plantilla
+                            </label>
+                            
+                            <div class="flex gap-3">
+                                <select id="template-select" class="flex-1 px-4 py-2.5 rounded-xl border focus:ring-2 focus:ring-blue-500 focus:border-transparent" style="border-color: var(--tec-gray-border);">
+                                    <option value="">-- Seleccionar plantilla --</option>
+                                    <option value="new">+ Crear nueva plantilla</option>
+                                    @foreach($templates as $template)
+                                        <option value="{{ $template->id }}" data-subject="{{ $template->subject }}" data-html="{{ $template->html }}">
+                                            {{ $template->name }} @if($template->is_default) (por defecto) @endif
+                                        </option>
+                                    @endforeach
+                                </select>
+                                
+                                <button type="button" id="delete-template-btn" class="px-4 py-2.5 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors hidden" title="Eliminar plantilla">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Paso 2: Asunto -->
+                        <div class="mb-6">
+                            <label class="block text-sm font-semibold mb-2" style="color: var(--tec-text);">
+                                📝 Paso 2: Asunto del correo <span class="text-red-500">*</span>
+                            </label>
+                            <input type="text" name="subject" id="subjectInput" required
+                                class="w-full px-4 py-2.5 rounded-xl border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                placeholder="Ej: Hola @{{ nombre }}, bienvenido al curso" style="border-color: var(--tec-gray-border);">
+                        </div>
+
+                        <!-- Paso 3: HTML de la plantilla -->
+                        <div class="mb-6">
+                            <label class="block text-sm font-semibold mb-2" style="color: var(--tec-text);">
+                                📄 Paso 3: Plantilla HTML <span class="text-red-500">*</span>
+                            </label>
+                            <p class="text-xs mb-2" style="color: var(--tec-text-light);">
+                                💡 Usa @{{ variable }} para insertar datos del CSV. Ej: @{{ nombre }}, @{{ email }}
+                            </p>
+                            
+                            <textarea name="html" id="htmlEditor" rows="15" required
+                                class="w-full px-4 py-2.5 rounded-xl border font-mono text-sm"
+                                style="border-color: var(--tec-gray-border); font-family: 'Courier New', monospace;"
+                                placeholder="Pega aquí tu código HTML completo..."></textarea>
+                            
+                            <!-- Botón para guardar plantilla -->
+                            <div class="mt-3 flex justify-end">
+                                <button type="button" id="save-template-btn" class="px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-colors text-sm flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
+                                    </svg>
+                                    Guardar como plantilla
+                                </button>
+                            </div>
+                        </div>
+
                         <!-- Variables disponibles -->
                         <div id="variables-container" class="mb-6 hidden">
                             <div class="p-4 rounded-xl" style="background-color: var(--tec-gray-bg); border: 1px solid var(--tec-gray-border);">
@@ -105,39 +151,16 @@
                                 </p>
                             </div>
                         </div>
-                        <!-- Paso 2: Asunto -->
-                        <div class="mb-6">
-                            <label class="block text-sm font-semibold mb-2" style="color: var(--tec-text);">
-                                📝 Paso 2: Asunto del correo <span class="text-red-500">*</span>
-                            </label>
-                            <input type="text" name="subject" id="subjectInput" required
-                                class="w-full px-4 py-2.5 rounded-xl border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                placeholder="Ej: Hola @{{ nombre }}, bienvenido al curso" style="border-color: var(--tec-gray-border);">
-                        </div>
-
-                        <!-- Paso 3: HTML de la plantilla -->
-                        <div class="mb-6">
-                            <label class="block text-sm font-semibold mb-2" style="color: var(--tec-text);">
-                                📄 Paso 3: Plantilla HTML <span class="text-red-500">*</span>
-                            </label>
-                            <p class="text-xs mb-2" style="color: var(--tec-text-light);">
-                                💡 Usa @{{ variable }} para insertar datos del CSV. Ej: @{{ nombre }}, @{{ email }}
-                            </p>
-                            <textarea name="html" id="htmlEditor" rows="15" required
-                                class="w-full px-4 py-2.5 rounded-xl border font-mono text-sm"
-                                style="border-color: var(--tec-gray-border); font-family: 'Courier New', monospace;"
-                                placeholder="Pega aquí tu código HTML completo..."></textarea>
-                        </div>
 
                         <!-- Archivo CSV -->
                         <div class="mb-6">
                             <label class="block text-sm font-semibold mb-2" style="color: var(--tec-text);">
-                                Archivo CSV
+                                📂 Paso 4: Archivo CSV <span class="text-red-500">*</span>
                             </label>
                             
                             <div id="dropZone" 
-                                 class="file-drop-zone border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200"
-                                 style="border-color: var(--tec-gray-border); background-color: var(--tec-gray-bg);">
+                                class="file-drop-zone border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200"
+                                style="border-color: var(--tec-gray-border); background-color: var(--tec-gray-bg);">
                                 <input type="file" name="archivo" id="fileInput" accept=".csv" class="hidden" required>
                                 
                                 <svg class="w-10 h-10 mx-auto mb-3" style="color: var(--tec-text-light);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -148,7 +171,7 @@
                                     <span id="fileName" class="font-medium" style="color: var(--tec-blue);">Haz clic o arrastra</span> tu archivo CSV
                                 </p>
                                 <p class="text-xs" style="color: var(--tec-text-light);">
-                                    CSV hasta 10MB • Columnas según tipo seleccionado
+                                    CSV hasta 10MB • Debe contener una columna de email
                                 </p>
                             </div>
                         </div>
@@ -165,31 +188,6 @@
                         </div>
                     </form>
                 </div>
-
-                <!-- Card Footer -->
-                <div class="px-6 sm:px-8 py-4 rounded-b-2xl" style="background-color: var(--tec-gray-bg); border-top: 1px solid var(--tec-gray-border);">
-                    <div class="flex flex-wrap items-center justify-between gap-3 text-xs" style="color: var(--tec-text-light);">
-                        <div class="flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                            <span>Soporta archivos CSV con codificación UTF-8</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
-                            </svg>
-                            <span>Envío seguro y progresivo</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Footer -->
-            <div class="text-center mt-8">
-                <p class="text-gray-500 text-xs">
-                    Instituto Tecnológico de Aguascalientes • Educación a Distancia
-                </p>
             </div>
         </div>
     </div>
@@ -205,7 +203,7 @@
         const form = document.getElementById('uploadForm');
 
         // ============================================
-        // 2. EDITORES ACTIVOS (para inserción automática)
+        // 2. EDITORES ACTIVOS 
         // ============================================
         let activeEditor = null;
         const subjectInput = document.getElementById('subjectInput');
@@ -459,6 +457,143 @@
         
         console.log('📧 Sistema de envío masivo listo');
         console.log('💡 Sube un CSV para ver las variables disponibles');
+
+        // ============================================
+        // 10. MANEJO DE PLANTILLAS
+        // ============================================
+
+        const templateSelect = document.getElementById('template-select');
+        const deleteTemplateBtn = document.getElementById('delete-template-btn');
+
+        // Cargar plantilla al seleccionar
+        templateSelect.addEventListener('change', function() {
+            const selectedOption = this.options[this.selectedIndex];
+            const value = this.value;
+            
+            if (value === '') {
+                // Seleccionar plantilla
+                subjectInput.value = '';
+                htmlEditor.value = '';
+                deleteTemplateBtn.classList.add('hidden');
+                return;
+            }
+            
+            if (value === 'new') {
+                // Crear nueva plantilla
+                subjectInput.value = '';
+                htmlEditor.value = '';
+                deleteTemplateBtn.classList.add('hidden');
+                subjectInput.focus();
+                return;
+            }
+            
+            // Cargar plantilla existente
+            const subject = selectedOption.dataset.subject || '';
+            const html = selectedOption.dataset.html || '';
+            
+            subjectInput.value = subject;
+            htmlEditor.value = html;
+            deleteTemplateBtn.classList.remove('hidden');
+            
+            // Mostrar feedback
+            showToast('✅ Plantilla cargada: ' + selectedOption.textContent);
+        });
+
+        // Guardar plantilla
+        document.getElementById('save-template-btn').addEventListener('click', function() {
+            const name = prompt('Nombre de la nueva plantilla:');
+            if (!name || name.trim() === '') {
+                alert('El nombre de la plantilla es obligatorio.');
+                return;
+            }
+            
+            const subject = subjectInput.value.trim();
+            const html = htmlEditor.value.trim();
+            
+            if (!subject || !html) {
+                alert('El asunto y el HTML son obligatorios para guardar la plantilla.');
+                return;
+            }
+            
+            // Enviar al servidor
+            fetch('{{ url("/templates/store") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('input[name="_token"]').value
+                },
+                body: JSON.stringify({
+                    name: name.trim(),
+                    subject: subject,
+                    html: html
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('✅ Plantilla guardada: ' + name.trim());
+                    
+                    // Agregar al select
+                    const option = document.createElement('option');
+                    option.value = data.template.id;
+                    option.textContent = data.template.name;
+                    option.dataset.subject = data.template.subject;
+                    option.dataset.html = data.template.html;
+                    templateSelect.insertBefore(option, templateSelect.lastChild);
+                    templateSelect.value = data.template.id;
+                    deleteTemplateBtn.classList.remove('hidden');
+                    
+                    // Recargar página para actualizar la lista
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    alert('Error al guardar: ' + (data.message || 'Error desconocido'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al guardar la plantilla.');
+            });
+        });
+
+        // Eliminar plantilla
+        deleteTemplateBtn.addEventListener('click', function() {
+            const selectedOption = templateSelect.options[templateSelect.selectedIndex];
+            const templateId = templateSelect.value;
+            const templateName = selectedOption.textContent;
+            
+            if (!templateId || templateId === 'new') {
+                return;
+            }
+            
+            if (!confirm('¿Estás seguro de eliminar la plantilla "' + templateName + '"?')) {
+                return;
+            }
+            
+            
+            fetch('{{ url("/templates") }}/' + templateId, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('input[name="_token"]').value
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('✅ Plantilla eliminada');
+                    selectedOption.remove();
+                    templateSelect.value = '';
+                    subjectInput.value = '';
+                    htmlEditor.value = '';
+                    deleteTemplateBtn.classList.add('hidden');
+                } else {
+                    alert('Error al eliminar: ' + (data.error || 'Error desconocido'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al eliminar la plantilla.');
+            });
+        });
     </script>
 </body>
 </html>

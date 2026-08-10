@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Template;
 use App\Jobs\SendGenericMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -10,7 +11,63 @@ class SendController extends Controller
 {
     public function index()
     {
-        return view('send.index');
+        $templates = Template::orderBy('name')->get();
+        return view('send.index', compact('templates'));
+    }
+
+    public function storeTemplate(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255|unique:templates,name',
+            'subject' => 'required|string|max:255',
+            'html' => 'required|string',
+        ]);
+
+        $template = Template::create([
+            'name' => $request->name,
+            'subject' => $request->subject,
+            'html' => $request->html,
+            'is_default' => false,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Plantilla guardada exitosamente',
+            'template' => $template
+        ]);
+    }
+
+    // Obtener una plantilla por ID
+    public function getTemplate($id)
+    {
+        $template = Template::find($id);
+        if (!$template) {
+            return response()->json(['error' => 'Plantilla no encontrada'], 404);
+        }
+        return response()->json($template);
+    }
+
+    // Obtener todas las plantillas 
+    public function getTemplates()
+    {
+        $templates = Template::orderBy('name')->get();
+        return response()->json($templates);
+    }
+
+    // Eliminar una plantilla
+    public function deleteTemplate($id)
+    {
+        $template = Template::find($id);
+        if (!$template) {
+            return response()->json(['error' => 'Plantilla no encontrada'], 404);
+        }
+        
+        if ($template->is_default) {
+            return response()->json(['error' => 'No se puede eliminar la plantilla por defecto'], 400);
+        }
+        
+        $template->delete();
+        return response()->json(['success' => true]);
     }
 
     public function getHeaders(Request $request)
