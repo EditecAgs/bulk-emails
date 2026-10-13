@@ -1,3 +1,4 @@
+
 name: Deploy Bulk Emails
 
 on:
@@ -27,23 +28,44 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Mostrar versiones del entorno
+        run: |
+          set -euxo pipefail
+          node --version
+          npm --version
+          php --version
+          composer --version
+          rsync --version
+
       - name: Instalar dependencias frontend
-        run: npm ci
+        run: |
+          set -euxo pipefail
+          npm ci
 
       - name: Ejecutar build
-        run: NODE_OPTIONS="--max-old-space-size=1024" npm run build
+        run: |
+          set -euxo pipefail
+          export NODE_OPTIONS="--max-old-space-size=1024"
+          npm run build
 
       - name: Verificar build
-        run: test -f public/build/manifest.json
+        run: |
+          set -euxo pipefail
+          test -f public/build/manifest.json
+          ls -lh public/build/manifest.json
 
       - name: Verificar configuración del servidor
         run: |
+          set -euxo pipefail
           test -f /var/www/html/bulk-emails/.env
           test -f /var/www/html/bulk-emails/artisan
+          test -d /var/www/html/bulk-emails/storage
+          echo "Configuración y directorios verificados."
 
       - name: Copiar aplicación al servidor
         run: |
-          rsync -a --delete \
+          set -euxo pipefail
+          rsync -av --delete \
             --exclude='.env' \
             --exclude='storage/' \
             --exclude='vendor/' \
@@ -56,6 +78,7 @@ jobs:
       - name: Instalar dependencias PHP
         working-directory: /var/www/html/bulk-emails
         run: |
+          set -euxo pipefail
           composer install \
             --no-dev \
             --prefer-dist \
@@ -65,9 +88,15 @@ jobs:
       - name: Actualizar Laravel
         working-directory: /var/www/html/bulk-emails
         run: |
-          set -e
+          set -euxo pipefail
           php artisan migrate --force
           php artisan optimize:clear
           php artisan config:cache
           php artisan view:cache
-          php artisan queue:restart
+
+      - name: Reiniciar servicio de la cola
+        run: |
+          set -euxo pipefail
+          sudo -n /usr/bin/systemctl restart bulk-emails-queue
+          sudo -n /usr/bin/systemctl is-active bulk-emails-queue
+          echo "Servicio de cola reiniciado y activo."
