@@ -1,0 +1,74 @@
+
+name: Deploy Bulk Emails
+
+on:
+  push:
+    branches:
+      - deploy-server
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bulk-emails-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, bulk-emails]
+
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Usar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Instalar dependencias frontend
+        run: npm ci
+
+      - name: Ejecutar build
+        run: NODE_OPTIONS="--max-old-space-size=1024" npm run build
+
+      - name: Verificar build
+        run: test -f public/build/manifest.json
+
+      - name: Verificar configuración del servidor
+        run: |
+          test -f /var/www/html/bulk-emails/.env
+          test -f /var/www/html/bulk-emails/artisan
+
+      - name: Copiar aplicación al servidor
+        run: |
+          rsync -a --delete \
+            --exclude='.env' \
+            --exclude='storage/' \
+            --exclude='vendor/' \
+            --exclude='bootstrap/cache/' \
+            --exclude='node_modules/' \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            ./ /var/www/html/bulk-emails/
+
+      - name: Instalar dependencias PHP
+        working-directory: /var/www/html/bulk-emails
+        run: |
+          composer install \
+            --no-dev \
+            --prefer-dist \
+            --no-interaction \
+            --optimize-autoloader
+
+      - name: Actualizar Laravel
+        working-directory: /var/www/html/bulk-emails
+        run: |
+          set -e
+          php artisan migrate --force
+          php artisan optimize:clear
+          php artisan config:cache
+          php artisan view:cache
+          php artisan queue:restart
