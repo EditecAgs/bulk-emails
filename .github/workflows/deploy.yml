@@ -1,4 +1,3 @@
-
 name: Deploy Bulk Emails
 
 on:
@@ -71,10 +70,4 @@ jobs:
           php artisan optimize:clear
           php artisan config:cache
           php artisan view:cache
-
-      - name: Reiniciar servicio de la cola
-        run: |
-          set -e
-          sudo systemctl restart bulk-emails-queue
-          sudo systemctl is-active --quiet bulk-emails-queue
-          echo "Servicio bulk-emails-queue activo correctamente."
+          php artisan queue:restart
